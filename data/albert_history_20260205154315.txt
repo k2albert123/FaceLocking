@@ -1,0 +1,5 @@
+Comprehensive scanning started for albert at 2026-02-05 15:43:15.011659
+Timestamp | Pos(X,Y) | Size(W,H) | Pose(R,Y,P) | Actions
+15:43:15.013 | (224,184)  | (150x150)  | R:-1.8 Y:+3.0 P:-12.4     | BLINK 
+15:43:16.151 | (221,179)  | (159x159)  | R:-1.0 Y:+2.2 P:+6.2      | 
+15:43:16.409 | (223,182)  | (156x156)  | R:-1.4 Y:+3.2 P:+3.4      | 

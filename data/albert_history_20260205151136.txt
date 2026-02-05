@@ -1,0 +1,3 @@
+Comprehensive scanning started for albert at 2026-02-05 15:11:36.606232
+Timestamp | Pos(X,Y) | Size(W,H) | Pose(R,Y,P) | Actions
+15:11:36.606 | (73,48)    | (202x202)  | R:+0.4 Y:-0.3 P:+53.9     | 
