@@ -1,0 +1,3 @@
+Face locking started for albert at 2026-02-05 12:22:35.651484
+12:22:35.953 | blink
+Lock released at 2026-02-05 12:22:38.043570
