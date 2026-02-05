@@ -70,7 +70,7 @@ while True:
         break
     frame = cv2.flip(frame, 1)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = detector.detectMultiScale(gray, 1.1, 5, minSize=(100, 100))
+    faces = detector.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
     if len(faces) > 0:
         x, y, w, h = faces[0]
         crop = frame[y:y+h, x:x+w]

@@ -112,20 +112,45 @@ if TARGET_NAME in reference:
 else:
     target_emb = None
 
+def compute_pose(landmarks, h, w):
+    # Simplified head pose estimation using key landmarks
+    # Nose: 1, Left Eye: 33, Right Eye: 263, Mouth Left: 61, Mouth Right: 291, Chin: 152
+    nose = np.array([landmarks.landmark[1].x * w, landmarks.landmark[1].y * h])
+    left_eye = np.array([landmarks.landmark[33].x * w, landmarks.landmark[33].y * h])
+    right_eye = np.array([landmarks.landmark[263].x * w, landmarks.landmark[263].y * h])
+    chin = np.array([landmarks.landmark[152].x * w, landmarks.landmark[152].y * h])
+    
+    # Roll: Angle between eyes
+    eye_delta = right_eye - left_eye
+    roll = np.degrees(np.arctan2(eye_delta[1], eye_delta[0]))
+    
+    # Yaw: Horizontal symmetry (dist between nose and eyes)
+    dist_l = np.linalg.norm(nose - left_eye)
+    dist_r = np.linalg.norm(nose - right_eye)
+    yaw = (dist_r - dist_l) / (dist_l + dist_r) * 100 # percentage-like
+    
+    # Pitch: Vertical symmetry
+    eye_center = (left_eye + right_eye) / 2
+    dist_nose_eyes = np.linalg.norm(nose - eye_center)
+    dist_nose_chin = np.linalg.norm(nose - chin)
+    pitch = (dist_nose_chin - dist_nose_eyes) / (dist_nose_eyes + dist_nose_chin) * 100
+    
+    return roll, yaw, pitch
+
 # State variables
 locked = False
 miss_count = 0
-prev_nose_x = None
-prev_mouth_width = None
+person_prev_nose_x = {} # Tracking nose x for all enrolled people
 history_file = None
 locked_timestamp = None
 prev_bbox = None
 current_people_in_frame = set()
 
 print(f"\n" + "="*50)
-print(f"Starting Face Locking System")
+print(f"Starting Face Locking & Scanning System")
 print(f"Target: {TARGET_NAME}")
-print(f"Camera ID: {args.camera}")
+print(f"Detection Range: ENHANCED (Anywhere)")
+print(f"Scanning Mode: Granular Trajectory + Pose")
 print(f"Press 'q' to quit")
 print("="*50 + "\n")
 
@@ -137,10 +162,10 @@ while True:
     frame = cv2.flip(frame, 1)
     h_frame, w_frame = frame.shape[:2]
 
-    # Region of interest (full frame if not locked, expanded previous bbox if locked)
+    # Region of interest (wider for better recovery/range)
     if locked and prev_bbox:
         x, y, w, h = prev_bbox
-        margin = 150 # Increased margin for better stability
+        margin = 300 # Even wider margin for "anywhere" feel
         roi_x = max(0, x - margin)
         roi_y = max(0, y - margin)
         roi_w = min(w_frame - roi_x, w + 2 * margin)
@@ -152,7 +177,8 @@ while True:
         offset_x, offset_y = 0, 0
 
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    faces_detected = detector.detectMultiScale(gray, 1.1, 5, minSize=(100, 100))
+    # Reduced minSize to (30, 30) for much better distance detection
+    faces_detected = detector.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
     
     target_recognized_this_frame = False
     detected_this_frame = set()
@@ -167,6 +193,9 @@ while True:
 
         if results.multi_face_landmarks:
             lm = results.multi_face_landmarks[0]
+            # Pose Estimation
+            roll, yaw, pitch = compute_pose(lm, h, w)
+            
             # 5-point alignment
             pts = np.array([[lm.landmark[i].x * w, lm.landmark[i].y * h] for i in INDICES_5PT], dtype=np.float32)
             M, _ = cv2.estimateAffinePartial2D(pts, REF_POINTS)
@@ -175,7 +204,6 @@ while True:
             # Embedding and recognition
             query_emb = get_embedding(aligned)
             
-            # Identify person
             max_sim = -1
             identity = "Unknown"
             for name, ref_emb in reference.items():
@@ -187,9 +215,20 @@ while True:
             label = identity if max_sim >= THRESHOLD else "Unknown"
             detected_this_frame.add(label)
             
-            # Terminal logging for appearances
-            if label != "Unknown" and label not in current_people_in_frame:
-                print(f"[DETECTED] {label.upper()} entered frame (sim: {max_sim:.2f})")
+            nose_x = int(lm.landmark[1].x * w) + x
+            
+            if label != "Unknown":
+                # Descriptive Movement Scanning for ALL enrolled people
+                if label in person_prev_nose_x:
+                    delta_x = nose_x - person_prev_nose_x[label]
+                    if delta_x > MOVEMENT_THRESHOLD:
+                        print(f"[ACTION] {label.upper()} moved to the right")
+                    elif delta_x < -MOVEMENT_THRESHOLD:
+                        print(f"[ACTION] {label.upper()} moved to the left")
+                person_prev_nose_x[label] = nose_x
+
+                if label not in current_people_in_frame:
+                    print(f"[SCAN] {label.upper()} initialized (sim: {max_sim:.2f})")
             
             is_target = (label.lower() == TARGET_NAME.lower())
             
@@ -197,44 +236,6 @@ while True:
                 target_recognized_this_frame = True
                 sim_target = max_sim
                 
-                nose_x = int(lm.landmark[1].x * w) + x  # Nose tip
-                eye_dist = np.linalg.norm(np.array([lm.landmark[33].x * w, lm.landmark[33].y * h]) -
-                                          np.array([lm.landmark[263].x * w, lm.landmark[263].y * h]))
-                mouth_width = np.linalg.norm(np.array([lm.landmark[61].x * w, lm.landmark[61].y * h]) -
-                                             np.array([lm.landmark[291].x * w, lm.landmark[291].y * h]))
-
-                # Action detection
-                action = None
-                if locked:
-                    # Movement
-                    if prev_nose_x is not None:
-                        delta_x = nose_x - prev_nose_x
-                        if delta_x > MOVEMENT_THRESHOLD:
-                            action = f"moved right"
-                        elif delta_x < -MOVEMENT_THRESHOLD:
-                            action = f"moved left"
-
-                    # Blink
-                    ear_left = compute_ear(lm, LEFT_EYE, h, w)
-                    ear_right = compute_ear(lm, RIGHT_EYE, h, w)
-                    ear = (ear_left + ear_right) / 2
-                    if ear < BLINK_EAR_THRESHOLD:
-                        action = "blink"
-
-                    # Smile
-                    smile_ratio = mouth_width / eye_dist if eye_dist > 0 else 0
-                    if smile_ratio > SMILE_RATIO_THRESHOLD:
-                        action = "smile/laugh"
-
-                    if action:
-                        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                        # Terminal Log
-                        print(f"[ACTION] {TARGET_NAME.upper()}: {action}")
-                        # File Log
-                        if history_file:
-                            with open(history_file, 'a') as f:
-                                f.write(f"{timestamp} | {action}\n")
-
                 # Locking logic
                 if not locked:
                     locked = True
@@ -242,49 +243,75 @@ while True:
                     locked_timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
                     history_file = os.path.join(ROOT_DIR, "data", f"{TARGET_NAME}_history_{locked_timestamp}.txt")
                     with open(history_file, 'w') as f:
-                        f.write(f"Face locking started for {TARGET_NAME} at {datetime.now()}\n")
-                    print(f"[LOCKED] System is now following {TARGET_NAME.upper()}")
+                        f.write(f"Comprehensive scanning started for {TARGET_NAME} at {datetime.now()}\n")
+                        f.write("Timestamp | Pos(X,Y) | Size(W,H) | Pose(R,Y,P) | Actions\n")
+                    print(f"[LOCKED] Wide-tracking active for {TARGET_NAME.upper()}")
                 
-                prev_nose_x = nose_x
+                # Granular Scanning Data
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                pos_str = f"({x},{y})"
+                size_str = f"({w}x{h})"
+                pose_str = f"R:{roll:+.1f} Y:{yaw:+.1f} P:{pitch:+.1f}"
+                
+                # Terminal output for "Every Movement" (Throttled or concise)
+                if cv2.getTickCount() % 10 == 0: # Increased throttle to make deskcrptive actions clearer
+                    print(f"[SCANNING] {TARGET_NAME.upper()} | Pos: {pos_str} | Pose: {pose_str}")
+
+                # Detect discrete actions too
+                action = ""
+                eye_dist = np.linalg.norm(np.array([lm.landmark[33].x * w, lm.landmark[33].y * h]) -
+                                          np.array([lm.landmark[263].x * w, lm.landmark[263].y * h]))
+                mouth_width = np.linalg.norm(np.array([lm.landmark[61].x * w, lm.landmark[61].y * h]) -
+                                             np.array([lm.landmark[291].x * w, lm.landmark[291].y * h]))
+                
+                ear = (compute_ear(lm, LEFT_EYE, h, w) + compute_ear(lm, RIGHT_EYE, h, w)) / 2
+                if ear < BLINK_EAR_THRESHOLD: action += "BLINK "
+                if (mouth_width / eye_dist if eye_dist > 0 else 0) > SMILE_RATIO_THRESHOLD: action += "SMILE "
+                
+                # Detailed Log Entry
+                if history_file:
+                    with open(history_file, 'a') as f:
+                        f.write(f"{timestamp} | {pos_str:10} | {size_str:10} | {pose_str:25} | {action}\n")
+
                 prev_bbox = (x, y, w, h)
                 miss_count = 0
                 
-                # UI for target
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 4)
-                cv2.putText(frame, f"LOCKED: {label.upper()} ({sim_target:.2f})", (x, y-15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                # UI for target (crosshair style)
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                cv2.line(frame, (x+w//2, y), (x+w//2, y+h), (0, 255, 0), 1) # Vertical center
+                cv2.line(frame, (x, y+h//2), (x+w, y+h//2), (0, 255, 0), 1) # Horizontal center
+                cv2.putText(frame, f"LOCKED: {label.upper()}", (x, y-25),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.putText(frame, f"POSE: {pose_str}", (x, y+h+20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             else:
-                # UI for others
                 color = (255, 255, 0) if label != "Unknown" else (0, 0, 255)
-                cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-                cv2.putText(frame, f"{label} ({max_sim:.2f})", (x, y-10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                cv2.rectangle(frame, (x, y), (x+w, y+h), color, 1)
+                cv2.putText(frame, f"{label}", (x, y-5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-            cv2.imshow('Aligned (Target)', aligned) if is_target else None
-
-    # Handle disappearances for terminal logging
-    for person in current_people_in_frame:
-        if person != "Unknown" and person not in detected_this_frame:
-            print(f"[LOST] {person.upper()} left frame")
-    current_people_in_frame = detected_this_frame
-
-    # Release lock logic
+    # Release logic
     if not target_recognized_this_frame:
         if locked:
             miss_count += 1
             if miss_count > MISS_TOLERANCE:
                 locked = False
-                print(f"[RELEASED] Lost lock on {TARGET_NAME.upper()}")
-                if history_file:
-                    with open(history_file, 'a') as f:
-                        f.write(f"Lock released at {datetime.now()}\n")
+                print(f"[LOST] Lost signal on {TARGET_NAME.upper()}")
                 history_file = None
                 prev_bbox = None
-                prev_nose_x = None
 
-    cv2.imshow('Face Locking & Recognition', frame)
+    # Handle disappearances for terminal
+    for person in current_people_in_frame - detected_this_frame:
+        if person != "Unknown":
+            print(f"[LOST] {person.upper()} signal lost")
+            if person in person_prev_nose_x:
+                del person_prev_nose_x[person]
+    current_people_in_frame = detected_this_frame
+
+    cv2.imshow('Wide-Range Face Locking & Scanning', frame)
     if cv2.waitKey(1) == ord('q'):
         break
 
 cap.release()
 cv2.destroyAllWindows()
+
