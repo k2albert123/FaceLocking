@@ -14,10 +14,16 @@ except ImportError:
 
 import os
 import sys
+import argparse
 
 # Resolve paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+
+# Parse arguments
+parser = argparse.ArgumentParser(description="Live Face Recognition")
+parser.add_argument("--camera", type=int, default=0, help="Camera index (default: 0)")
+args = parser.parse_args()
 
 THRESHOLD = 0.62
 
@@ -63,7 +69,7 @@ for name, embs in db.items():
     mean_emb /= np.linalg.norm(mean_emb)
     reference[name] = mean_emb
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(args.camera)
 while True:
     ret, frame = cap.read()
     if not ret:

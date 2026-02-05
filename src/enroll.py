@@ -26,9 +26,18 @@ face_mesh = mp_face_mesh.FaceMesh(
     refine_landmarks=True
 )
 
+import os
+import sys
+import argparse
+
 # Resolve paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+
+# Parse arguments
+parser = argparse.ArgumentParser(description="Face Enrollment")
+parser.add_argument("--camera", type=int, default=0, help="Camera index (default: 0)")
+args = parser.parse_args()
 
 model_path = os.path.join(ROOT_DIR, "models", "embedder_arcface.onnx")
 if not os.path.exists(model_path):
@@ -84,7 +93,7 @@ os.makedirs(enroll_dir, exist_ok=True)
 embeddings = []
 count = 0
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(args.camera)
 
 print("Look at camera. Auto-capture on good face. Aim for 15+ samples. Press Q to finish.")
 

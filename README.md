@@ -42,13 +42,34 @@ Extension of the ArcFace face recognition project with face locking and action d
 
 ## How to Run
 
-## How to Run
+### How to Run
 
-- Enroll identities as before.
-- Run `python src/face_locking.py`
-  - To specify a camera: `python src/face_locking.py --camera 1`
-  - To specify a target directly: `python src/face_locking.py --target gabi`
-- Enter the target identity name when prompted (if not provided via CLI).
+1.  **Face Enrollment (Register your face)**:
+
+    ```bash
+    python src/enroll.py --camera 0
+    ```
+
+    (Change `0` to `1` or `2` for external cameras).
+
+2.  **Face Recognition (Live test)**:
+
+    ```bash
+    python src/recognize.py --camera 0
+    ```
+
+3.  **Face Locking & Scanning (Main Feature)**:
+
+    ```bash
+    python src/face_locking.py --target "your_name" --camera 0
+    ```
+
+4.  **Evaluate Thresholds**:
+    ````bash
+    python src/evaluate.py
+    ```(if not provided via CLI).
+    ````
+
 - When the person appears, it locks (green box), tracks stably, detects actions, and logs to `data/<name>_history_*.txt`
 
 ## Face Locking Works
