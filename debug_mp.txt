@@ -1,0 +1,7 @@
+Python version: 3.11.5 (tags/v3.11.5:cce6ba9, Aug 24 2023, 14:38:34) [MSC v.1936 64 bit (AMD64)]
+Python executable: D:\robotics\facelocking\facelockingtask\.venv\Scripts\python.exe
+MediaPipe version: 0.10.10
+MediaPipe file: D:\robotics\facelocking\facelockingtask\.venv\Lib\site-packages\mediapipe\__init__.py
+MediaPipe dir: ['CalculatorGraph', 'GraphInputStreamAddMode', 'Image', 'ImageFormat', 'ImageFrame', 'Matrix', 'Packet', 'Timestamp', 'ValidatedGraphConfig', '__builtins__', '__cached__', '__doc__', '__file__', '__loader__', '__name__', '__package__', '__path__', '__spec__', '__version__', 'calculators', 'packet_creator', 'packet_getter', 'resource_util', 'solutions', 'tasks']
+Successfully imported mediapipe.python.solutions.face_mesh
+Failed to import mediapipe.solutions: No module named 'mediapipe.solutions'
