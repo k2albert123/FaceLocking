@@ -62,6 +62,7 @@ Extension of the ArcFace face recognition project with face locking and action d
 
     ```bash
     python src/face_locking.py --target "your_name" --camera 0
+     
     ```
 
 4.  **Evaluate Thresholds**:
