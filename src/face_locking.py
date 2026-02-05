@@ -141,6 +141,7 @@ def compute_pose(landmarks, h, w):
 locked = False
 miss_count = 0
 person_prev_nose_x = {} # Tracking nose x for all enrolled people
+person_prev_state = {} # Tracking expression states (blink, smile) for debouncing
 history_file = None
 locked_timestamp = None
 prev_bbox = None
@@ -226,6 +227,33 @@ while True:
                     elif delta_x < -MOVEMENT_THRESHOLD:
                         print(f"[ACTION] {label.upper()} moved to the left")
                 person_prev_nose_x[label] = nose_x
+
+                # Expression Detection for ALL enrolled people
+                eye_dist_all = np.linalg.norm(np.array([lm.landmark[33].x * w, lm.landmark[33].y * h]) -
+                                              np.array([lm.landmark[263].x * w, lm.landmark[263].y * h]))
+                mouth_width_all = np.linalg.norm(np.array([lm.landmark[61].x * w, lm.landmark[61].y * h]) -
+                                                 np.array([lm.landmark[291].x * w, lm.landmark[291].y * h]))
+                ear_all = (compute_ear(lm, LEFT_EYE, h, w) + compute_ear(lm, RIGHT_EYE, h, w)) / 2
+                
+                if label not in person_prev_state:
+                    person_prev_state[label] = {"blink": False, "smile": False}
+
+                # Blinking
+                if ear_all < BLINK_EAR_THRESHOLD:
+                    if not person_prev_state[label]["blink"]:
+                        print(f"[ACTION] {label.upper()} blinked")
+                        person_prev_state[label]["blink"] = True
+                else:
+                    person_prev_state[label]["blink"] = False
+
+                # Smiling
+                smile_ratio_all = mouth_width_all / eye_dist_all if eye_dist_all > 0 else 0
+                if smile_ratio_all > SMILE_RATIO_THRESHOLD:
+                    if not person_prev_state[label]["smile"]:
+                        print(f"[ACTION] {label.upper()} smiled")
+                        person_prev_state[label]["smile"] = True
+                else:
+                    person_prev_state[label]["smile"] = False
 
                 if label not in current_people_in_frame:
                     print(f"[SCAN] {label.upper()} initialized (sim: {max_sim:.2f})")
