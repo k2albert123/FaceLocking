@@ -4,20 +4,58 @@ import mediapipe as mp
 import onnxruntime as ort
 import pickle
 import os
+import argparse
+import sys
 from datetime import datetime
+
+# Parse arguments
+parser = argparse.ArgumentParser(description="Face Locking System")
+parser.add_argument("--camera", type=int, default=0, help="Camera index (default: 0)")
+parser.add_argument("--target", type=str, help="Identity to lock onto")
+args = parser.parse_args()
 
 # Config
 THRESHOLD = 0.62
-TARGET_NAME = input("Enter the identity to lock onto (e.g., your name): ").strip().lower()
+if args.target:
+    TARGET_NAME = args.target.strip().lower()
+else:
+    TARGET_NAME = input("Enter the identity to lock onto (e.g., your name): ").strip().lower()
+
 MISS_TOLERANCE = 20  # Frames to tolerate no face before unlock
 MOVEMENT_THRESHOLD = 30  # Pixels for left/right movement
 BLINK_EAR_THRESHOLD = 0.25
 SMILE_RATIO_THRESHOLD = 1.8
 
 detector = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-mp_face_mesh = mp.solutions.face_mesh
+
+try:
+    from mediapipe.python.solutions import face_mesh as mp_face_mesh
+    from mediapipe.python.solutions import drawing_utils as mp_drawing
+except ImportError:
+    try:
+        import mediapipe.solutions.face_mesh as mp_face_mesh
+        import mediapipe.solutions.drawing_utils as mp_drawing
+    except AttributeError:
+        # Fallback for some installs
+        mp_face_mesh = mp.solutions.face_mesh
+        mp_drawing = mp.solutions.drawing_utils
+
 face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=1, refine_landmarks=True)
-session = ort.InferenceSession("../models/embedder_arcface.onnx")
+
+# Resolve paths relative to script location
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+
+model_path = os.path.join(ROOT_DIR, "models", "embedder_arcface.onnx")
+if not os.path.exists(model_path):
+    print(f"Error: Model not found at {model_path}")
+    sys.exit(1)
+
+try:
+    session = ort.InferenceSession(model_path)
+except Exception as e:
+    print(f"Error loading model: {e}")
+    sys.exit(1)
 
 REF_POINTS = np.array([
     [38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
@@ -50,7 +88,12 @@ def compute_ear(landmarks, eye_indices, h, w):
     return (A + B) / (2.0 * C) if C > 0 else 0
 
 # Load database
-with open('../data/db/face_db.pkl', 'rb') as f:
+db_path = os.path.join(ROOT_DIR, "data", "db", "face_db.pkl")
+if not os.path.exists(db_path):
+    print(f"Error: Database not found at {db_path}")
+    sys.exit(1)
+
+with open(db_path, 'rb') as f:
     db = pickle.load(f)
 
 reference = {}
@@ -60,10 +103,14 @@ for name, embs in db.items():
     reference[name.lower()] = mean_emb
 
 if TARGET_NAME not in reference:
-    print(f"Warning: {TARGET_NAME} not found in database!")
-    exit()
+    print(f"Warning: '{TARGET_NAME}' not found in database! Available: {list(reference.keys())}")
+    # We allow it to run, but it won't lock
+    # exit() # assignment implies we should select a VALID identity, but helpful for debugging to see available
 
-target_emb = reference[TARGET_NAME]
+if TARGET_NAME in reference:
+    target_emb = reference[TARGET_NAME]
+else:
+    target_emb = None
 
 # State variables
 locked = False
@@ -74,7 +121,10 @@ history_file = None
 locked_timestamp = None
 prev_bbox = None
 
-cap = cv2.VideoCapture(0)
+print(f"Starting Face Locking for target: {TARGET_NAME}")
+print(f"Using Camera: {args.camera}")
+
+cap = cv2.VideoCapture(args.camera)
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -117,7 +167,10 @@ while True:
 
             # Embedding and recognition
             query_emb = get_embedding(aligned)
-            sim = np.dot(query_emb, target_emb)
+            if target_emb is not None:
+                sim = np.dot(query_emb, target_emb)
+            else:
+                sim = 0.0 # No target, no match
 
             nose_x = int(lm.landmark[1].x * w) + x  # Nose tip
             eye_dist = np.linalg.norm(np.array([lm.landmark[33].x * w, lm.landmark[33].y * h]) -
@@ -158,7 +211,7 @@ while True:
                 locked = True
                 miss_count = 0
                 locked_timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                history_file = f"../data/{TARGET_NAME}_history_{locked_timestamp}.txt"
+                history_file = os.path.join(ROOT_DIR, "data", f"{TARGET_NAME}_history_{locked_timestamp}.txt")
                 with open(history_file, 'w') as f:
                     f.write(f"Face locking started for {TARGET_NAME} at {datetime.now()}\n")
                 print(f"LOCKED onto {TARGET_NAME}")

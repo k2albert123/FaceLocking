@@ -4,12 +4,32 @@ import mediapipe as mp
 import onnxruntime as ort
 import pickle
 
+try:
+    from mediapipe.python.solutions import face_mesh as mp_face_mesh
+except ImportError:
+    try:
+        import mediapipe.solutions.face_mesh as mp_face_mesh
+    except AttributeError:
+        mp_face_mesh = mp.solutions.face_mesh
+
+import os
+import sys
+
+# Resolve paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+
 THRESHOLD = 0.62
 
 detector = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=1)
-session = ort.InferenceSession("../models/embedder_arcface.onnx")
+
+model_path = os.path.join(ROOT_DIR, "models", "embedder_arcface.onnx")
+if not os.path.exists(model_path):
+    print(f"Error: Model not found at {model_path}")
+    sys.exit(1)
+
+session = ort.InferenceSession(model_path)
 
 REF_POINTS = np.array([
     [38.2946, 51.6963],
@@ -29,7 +49,12 @@ def preprocess(aligned):
     return img
 
 # Load database and precompute mean embeddings
-with open('../data/db/face_db.pkl', 'rb') as f:
+db_path = os.path.join(ROOT_DIR, "data", "db", "face_db.pkl")
+if not os.path.exists(db_path):
+    print(f"Error: Database not found at {db_path}")
+    sys.exit(1)
+
+with open(db_path, 'rb') as f:
     db = pickle.load(f)
 
 reference = {}

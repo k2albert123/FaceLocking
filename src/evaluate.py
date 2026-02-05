@@ -2,7 +2,19 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 
-with open('../data/db/face_db.pkl', 'rb') as f:
+import os
+import sys
+
+# Resolve paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+
+db_path = os.path.join(ROOT_DIR, "data", "db", "face_db.pkl")
+if not os.path.exists(db_path):
+    print(f"Error: Database not found at {db_path}")
+    sys.exit(1)
+
+with open(db_path, 'rb') as f:
     db = pickle.load(f)
 
 genuine_scores = []

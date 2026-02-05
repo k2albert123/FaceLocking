@@ -8,18 +8,34 @@ import os
 # -----------------------------
 # Models
 # -----------------------------
+try:
+    from mediapipe.python.solutions import face_mesh as mp_face_mesh
+except ImportError:
+    try:
+        import mediapipe.solutions.face_mesh as mp_face_mesh
+    except AttributeError:
+        mp_face_mesh = mp.solutions.face_mesh
+
 detector = cv2.CascadeClassifier(
     cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 )
 
-mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
     static_image_mode=False,
     max_num_faces=1,
     refine_landmarks=True
 )
 
-session = ort.InferenceSession("../models/embedder_arcface.onnx")
+# Resolve paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+
+model_path = os.path.join(ROOT_DIR, "models", "embedder_arcface.onnx")
+if not os.path.exists(model_path):
+    print(f"Error: Model not found at {model_path}")
+    sys.exit(1)
+
+session = ort.InferenceSession(model_path)
 input_name = session.get_inputs()[0].name
 
 # -----------------------------
@@ -50,7 +66,7 @@ def preprocess(aligned):
 # -----------------------------
 # Load DB
 # -----------------------------
-DB_PATH = "../data/db/face_db.pkl"
+DB_PATH = os.path.join(ROOT_DIR, "data", "db", "face_db.pkl")
 
 if os.path.exists(DB_PATH):
     with open(DB_PATH, 'rb') as f:
@@ -62,7 +78,8 @@ else:
 # Enrollment Setup
 # -----------------------------
 name = input("Enter identity name: ").strip()
-os.makedirs(f"../data/enroll/{name}", exist_ok=True)
+enroll_dir = os.path.join(ROOT_DIR, "data", "enroll", name)
+os.makedirs(enroll_dir, exist_ok=True)
 
 embeddings = []
 count = 0
@@ -132,7 +149,8 @@ while True:
             embeddings.append(emb)
             count += 1
 
-            cv2.imwrite(f"../data/enroll/{name}/{count:04d}.jpg", aligned)
+            img_path = os.path.join(enroll_dir, f"{count:04d}.jpg")
+            cv2.imwrite(img_path, aligned)
 
             cv2.putText(
                 frame,
